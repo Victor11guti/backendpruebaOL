@@ -1,6 +1,7 @@
 package com.prueba.ol.service.impl;
 
 import com.prueba.ol.DTO.ComercianteDTO;
+import com.prueba.ol.DTO.ComercianteReporteDTO;
 import com.prueba.ol.entity.Comerciante;
 import com.prueba.ol.mapper.ComercianteMapper;
 import com.prueba.ol.repository.ComercianteRepository;
@@ -14,6 +15,9 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 
+import oracle.jdbc.OracleTypes;
+import javax.sql.DataSource;
+import java.sql.*;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.List;
@@ -24,10 +28,41 @@ public class ComercianteServiceImpl implements ComercianteService {
 
     private final ComercianteRepository repo;
     private final ComercianteMapper mapper;
+    private final DataSource dataSource;
 
-    public ComercianteServiceImpl(ComercianteRepository repo, ComercianteMapper mapper) {
+    public ComercianteServiceImpl(ComercianteRepository repo, ComercianteMapper mapper, DataSource dataSource) {
         this.repo = repo;
         this.mapper = mapper;
+        this.dataSource = dataSource;
+    }
+
+    private List<ComercianteReporteDTO> obtenerComerciantesDesdeFuncion() {
+        List<ComercianteReporteDTO> lista = new java.util.ArrayList<>();
+        try (Connection conn = dataSource.getConnection();
+             CallableStatement stmt = conn.prepareCall("{ ? = call pkg_reportes.comerciantes_activos }")) {
+
+            stmt.registerOutParameter(1, OracleTypes.CURSOR);
+            stmt.execute();
+
+            try (ResultSet rs = (ResultSet) stmt.getObject(1)) {
+                while (rs.next()) {
+                    ComercianteReporteDTO dto = new ComercianteReporteDTO();
+                    dto.setNombre(rs.getString("nombre_razon_social"));
+                    dto.setMunicipio(rs.getString("municipio"));
+                    dto.setTelefono(rs.getString("telefono"));
+                    dto.setCorreo(rs.getString("correo_electronico"));
+                    dto.setFechaRegistro(rs.getDate("fecha_registro").toLocalDate());
+                    dto.setEstado(rs.getString("estado"));
+                    dto.setCantidadEstablecimientos(rs.getInt("cantidad_establecimientos"));
+                    dto.setTotalIngresos(rs.getBigDecimal("total_ingresos"));
+                    dto.setTotalEmpleados(rs.getInt("total_empleados"));
+                    lista.add(dto);
+                }
+            }
+        } catch (SQLException e) {
+            e.printStackTrace(); // Puedes usar un logger en producción
+        }
+        return lista;
     }
 
     @Override
@@ -87,23 +122,21 @@ public class ComercianteServiceImpl implements ComercianteService {
 
     @Override
     public Resource exportarCSV() {
-        List<Comerciante> comerciantes = repo.findAll().stream()
-            .filter(c -> "Activo".equalsIgnoreCase(c.getEstado()))
-            .toList();
+        List<ComercianteReporteDTO> comerciantes = obtenerComerciantesDesdeFuncion();
 
         StringBuilder sb = new StringBuilder();
         sb.append("Nombre|Municipio|Teléfono|Correo|Fecha Registro|Estado|Establecimientos|Ingresos|Empleados\n");
 
-        for (Comerciante c : comerciantes) {
+        for (ComercianteReporteDTO c : comerciantes) {
             sb.append(c.getNombre()).append("|")
               .append(c.getMunicipio()).append("|")
               .append(c.getTelefono() != null ? c.getTelefono() : "").append("|")
               .append(c.getCorreo() != null ? c.getCorreo() : "").append("|")
               .append(c.getFechaRegistro()).append("|")
               .append(c.getEstado()).append("|")
-              .append("0").append("|") // Cant. Establecimientos [lógica futura]
-              .append("0").append("|") // Total Ingresos [lógica futura]
-              .append("0").append("\n"); // Empleados [lógica futura]
+              .append(c.getCantidadEstablecimientos()).append("|")
+              .append(c.getTotalIngresos()).append("|")
+              .append(c.getTotalEmpleados()).append("\n");
         }
 
         byte[] data = sb.toString().getBytes(StandardCharsets.UTF_8);

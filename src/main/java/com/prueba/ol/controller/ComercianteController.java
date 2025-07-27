@@ -74,6 +74,7 @@ public class ComercianteController {
         return service.cambiarEstado(id, estado, auth.getName());
     }
 
+    
     @Operation(summary = "Exportar comerciantes activos a CSV", description = "Genera y descarga archivo .csv con datos agregados. Requiere rol ADMINISTRADOR.",
             security = @SecurityRequirement(name = "bearerAuth"))
     @GetMapping("/exportar")
